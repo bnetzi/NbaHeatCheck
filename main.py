@@ -49,7 +49,7 @@ def get_games():
                 df.to_pickle(file_path)
             except Exception as e:
                 print("pbp package failed with" + str(e.args))
-                logging.log(msg="pbp package failed with" + str(e.args), level=2)
+                logger.log(msg="pbp package failed with" + str(e.args), level=2)
                 continue
 
         last_index = df['Time'].last_valid_index()
@@ -95,10 +95,8 @@ def get_games():
 
 def present_hot_games():
     data = get_games()
-    text = f"The best game for today is {data['1']['Game']} with a {data['1']['Excitement']} Excitement level"
-    text += f" - {data['1']['How-close']}\n" if data['1'].get("How-close") else f"\n"
-    text += f"All other games excitement level:\n"
-    for i in range(2, len(data)+1):
+    text = f"All Games Interest level:\n"
+    for i in range(1, len(data)+1):
         text += f"{data[str(i)]['Game']} - {data[str(i)]['Excitement']}"
         text += f" - {data[str(i)]['How-close']}\n" if data[str(i)].get('How-close') else f"\n"
 
@@ -111,15 +109,32 @@ def start(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id, text=present_hot_games())
 
 
-token = os.getenv('TG_TOKEN')
-if not token:
-    raise Exception("Token env var undefined")
-bot = telegram.Bot(token=token)
-updater = Updater(token=token, use_context=True)
-dispatcher = updater.dispatcher
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+def run(updater):
+    if os.getenv('MODE') == 'prod':
+        port = int(os.environ.get("PORT", "8443"))
+        heroku_app_name = "nbaheatcheck"
+        updater.start_webhook(listen="0.0.0.0",
+                              port=port,
+                              url_path=Token)
+        updater.bot.set_webhook("https://{}.herokuapp.com/{}".format(heroku_app_name, Token))
+    else:
+        updater.start_polling()
 
-start_handler = CommandHandler('start', start)
-dispatcher.add_handler(start_handler)
-updater.start_polling()
+
+if __name__ == '__main__':
+    logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    logger = logging.getLogger()
+
+    # Get Telegram Token
+    Token = os.getenv('TG_TOKEN')
+    if not Token:
+        raise Exception("Token env var undefined")
+
+    # Init bot and add handlers
+    bot = telegram.Bot(token=Token)
+    updater = Updater(token=Token, use_context=True)
+    dispatcher = updater.dispatcher
+    dispatcher.add_handler(CommandHandler('start', start))
+
+    run(updater)
 
