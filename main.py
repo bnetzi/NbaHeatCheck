@@ -44,8 +44,13 @@ def get_games():
         if os.path.isfile(file_path):
             df = pd.read_pickle(file_path)
         else:
-            df = nba_pbp_scraper.pbp_to_df(teams[0], teams[2], today)
-            df.to_pickle(file_path)
+            try:
+                df = nba_pbp_scraper.pbp_to_df(teams[0], teams[2], today)
+                df.to_pickle(file_path)
+            except Exception as e:
+                print("pbp package failed with" + str(e.args))
+                logging.log(msg="pbp package failed with" + str(e.args), level=2)
+                continue
 
         last_index = df['Time'].last_valid_index()
         last_move = df[df['Event_num'] == last_index]
@@ -83,25 +88,28 @@ def get_games():
                 if lead_changes > 1:
                     is_close = True
 
-        games[str(game_index)]['How-close'] = 'Very close' if is_very_close else 'Close' if is_close else None
+        games[str(game_index)]['How-close'] = 'Very close game' if is_very_close else 'Close game' if is_close else None
+
     return games
 
 
 def present_hot_games():
     data = get_games()
-    text = f"The best game for today is {data['1']['Game']} with a {data['1']['Excitement']} Excitement level \n"
-    text += f"All other games excitement level: \n"
+    text = f"The best game for today is {data['1']['Game']} with a {data['1']['Excitement']} Excitement level"
+    text += f" - {data['1']['How-close']}\n" if data['1'].get("How-close") else f"\n"
+    text += f"All other games excitement level:\n"
     for i in range(2, len(data)+1):
-        text += f"{data[str(i)]['Game']} - {data[str(i)]['Excitement']}\n"
+        text += f"{data[str(i)]['Game']} - {data[str(i)]['Excitement']}"
+        text += f" - {data[str(i)]['How-close']}\n" if data[str(i)].get('How-close') else f"\n"
 
+    print(text)
     return text
 
 
 def start(update, context):
+    context.bot.send_message(chat_id=update.effective_chat.id, text="Processing Data")
     context.bot.send_message(chat_id=update.effective_chat.id, text=present_hot_games())
 
-
-print(present_hot_games())
 
 token = os.getenv('TG_TOKEN')
 if not token:
