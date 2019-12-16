@@ -12,7 +12,7 @@ setup(
     install_requires=reqs,
     entry_points={
         'console_scripts': [
-            'main = main:main'
+            'nba = main:main'
         ],
     }
 )

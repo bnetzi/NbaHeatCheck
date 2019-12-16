@@ -49,7 +49,6 @@ def get_games():
                 df.to_pickle(file_path)
             except Exception as e:
                 print("pbp package failed with" + str(e.args))
-                logger.log(msg="pbp package failed with" + str(e.args), level=2)
                 continue
 
         last_index = df['Time'].last_valid_index()
