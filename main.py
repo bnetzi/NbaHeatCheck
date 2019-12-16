@@ -4,14 +4,9 @@ from telegram.ext import Updater, CommandHandler
 import logging
 from urllib.request import urlretrieve
 from bs4 import BeautifulSoup
-
-token = os.getenv('TG_TOKEN')
-if not token:
-    raise Exception("Token env var undefined")
-bot = telegram.Bot(token=token)
-updater = Updater(token=token, use_context=True)
-dispatcher = updater.dispatcher
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+from nba_pbp_scraper import nba_pbp_scraper
+from datetime import datetime, timedelta
+import pandas as pd
 
 
 def get_data():
@@ -24,9 +19,11 @@ def get_data():
     soup = BeautifulSoup(content, 'html.parser')
     table = soup.find(class_="iptbl").find("tbody")
     scores_headers = [head.get_text() for head in table.findAll('th')]
+    unimportant_headers_index = scores_headers.index('League Averages')
+    scores_headers = scores_headers[:unimportant_headers_index]
     scores_table = table.findAll('tr')
     scores_dict = dict()
-    for score in scores_table[1:]:
+    for score in scores_table[1:-1]:
         game = score.find("td").get_text()
         scores_dict[game] = dict.fromkeys(scores_headers)
         values = score.findAll("td")
@@ -36,8 +33,62 @@ def get_data():
     return scores_dict
 
 
+def get_games():
+    today = (datetime.today() - timedelta(days=1)).strftime('%Y%m%d')
+    games = get_data()
+
+    for game_index in range(2, len(games)+1):
+        game_title = games[str(game_index)]['Game']
+        teams = game_title.split()
+        file_path = os.getcwd() + game_title + today
+        if os.path.isfile(file_path):
+            df = pd.read_pickle(file_path)
+        else:
+            df = nba_pbp_scraper.pbp_to_df(teams[0], teams[2], today)
+            df.to_pickle(file_path)
+
+        last_index = df['Time'].last_valid_index()
+        last_move = df[df['Event_num'] == last_index]
+        final_aw_score = curr_aw_score = last_move.Aw_Score
+        final_hm_score = curr_hm_score = last_move.Hm_Score
+        last_home_leads = curr_hm_leads = final_hm_score > final_aw_score
+
+        is_very_close = False
+        is_close = False
+        lead_changes = 0
+
+        # Iterate over last 5 minutes move and check if game is close
+        for i in range(last_index, 0, -1):
+            curr_move = df[df['Event_num'] == i]
+            curr_aw_score, curr_hm_score = curr_move.Aw_Score, curr_move.Hm_Score
+            minutes_left = curr_move.Time.values[0].split(":")[0]
+            is_last_minute = minutes_left < '1'
+            is_last_5 = minutes_left < '5'
+            curr_hm_leads = curr_hm_score > curr_aw_score
+            if curr_hm_leads.bool() != last_home_leads.bool():
+                lead_changes += 1
+            last_home_leads = curr_hm_leads
+            if not is_last_5:
+                break
+            if is_last_minute:
+                if lead_changes > 1 or int(abs(curr_aw_score - curr_hm_score)) <= 3:
+                    is_very_close = True
+                    break
+                if int(abs(curr_aw_score - curr_hm_score)) <= 5:
+                    is_close = True
+            if is_last_5:
+                if lead_changes > 5:
+                    is_very_close = True
+                    break
+                if lead_changes > 1:
+                    is_close = True
+
+        games[str(game_index)]['How-close'] = 'Very close' if is_very_close else 'Close' if is_close else None
+    return games
+
+
 def present_hot_games():
-    data = get_data()
+    data = get_games()
     text = f"The best game for today is {data['1']['Game']} with a {data['1']['Excitement']} Excitement level \n"
     text += f"All other games excitement level: \n"
     for i in range(2, len(data)+1):
@@ -51,6 +102,15 @@ def start(update, context):
 
 
 print(present_hot_games())
+
+token = os.getenv('TG_TOKEN')
+if not token:
+    raise Exception("Token env var undefined")
+bot = telegram.Bot(token=token)
+updater = Updater(token=token, use_context=True)
+dispatcher = updater.dispatcher
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
 start_handler = CommandHandler('start', start)
 dispatcher.add_handler(start_handler)
 updater.start_polling()
